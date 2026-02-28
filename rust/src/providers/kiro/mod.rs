@@ -18,6 +18,7 @@ use std::process::Stdio;
 use tokio::process::Command;
 use regex_lite::Regex;
 #[cfg(windows)]
+#[allow(unused_imports)]
 use std::os::windows::process::CommandExt;
 
 use crate::core::{

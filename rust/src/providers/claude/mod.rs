@@ -305,9 +305,9 @@ fn wsl_has_claude() -> bool {
         if which::which("wsl").is_err() {
             return false;
         }
-        // Probe for claude inside WSL
+        // Probe for claude inside WSL (use bash -c since `command` is a shell built-in)
         std::process::Command::new("wsl.exe")
-            .args(["command", "-v", "claude"])
+            .args(["bash", "-c", "command -v claude"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
