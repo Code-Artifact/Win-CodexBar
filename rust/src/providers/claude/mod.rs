@@ -142,7 +142,7 @@ impl ClaudeProvider {
             ClaudeLocation::Native(path) => Command::new(path),
             ClaudeLocation::Wsl => {
                 let mut c = Command::new("wsl.exe");
-                c.arg("claude");
+                c.args(["bash", "-lc", "claude"]);
                 c
             }
         };
@@ -305,9 +305,9 @@ fn wsl_has_claude() -> bool {
         if which::which("wsl").is_err() {
             return false;
         }
-        // Probe for claude inside WSL (use bash -c since `command` is a shell built-in)
+        // Probe for claude inside WSL (use login shell so nvm/npm PATH is sourced)
         std::process::Command::new("wsl.exe")
-            .args(["bash", "-c", "command -v claude"])
+            .args(["bash", "-lc", "command -v claude"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -353,7 +353,7 @@ fn detect_claude_version() -> Option<String> {
         }
         ClaudeLocation::Wsl => {
             std::process::Command::new("wsl.exe")
-                .args(["claude", "--version"])
+                .args(["bash", "-lc", "claude --version"])
                 .output()
                 .ok()?
         }

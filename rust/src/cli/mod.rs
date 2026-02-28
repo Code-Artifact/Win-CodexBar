@@ -120,6 +120,19 @@ pub enum Commands {
 }
 
 impl Cli {
+    /// Returns true when the user passed any flag that implies they want CLI usage output.
+    /// When false (bare `codexbar` with no flags), we default to the GUI.
+    pub fn has_usage_flags(&self) -> bool {
+        self.provider.is_some()
+            || self.format.is_some()
+            || self.json
+            || self.pretty
+            || self.status
+            || self.no_credits
+            || self.web_debug_dump_html
+            || self.antigravity_plan_debug
+    }
+
     /// Convert top-level args to UsageArgs for default command
     pub fn to_usage_args(&self) -> usage::UsageArgs {
         usage::UsageArgs {

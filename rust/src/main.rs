@@ -125,17 +125,35 @@ fn run() -> i32 {
             })
         }
         None => {
-            // Default: run usage command with args from top-level CLI
-            let args = cli.to_usage_args();
-            rt.block_on(async {
-                match cli::usage::run(args).await {
-                    Ok(()) => exit_codes::SUCCESS,
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        categorize_error(&e)
+            if cli.has_usage_flags() {
+                // CLI flags present → run usage command
+                let args = cli.to_usage_args();
+                rt.block_on(async {
+                    match cli::usage::run(args).await {
+                        Ok(()) => exit_codes::SUCCESS,
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            categorize_error(&e)
+                        }
                     }
+                })
+            } else {
+                // No flags (bare `codexbar`, e.g. double-click) → launch GUI
+                #[cfg(windows)]
+                hide_console_window();
+
+                let _guard = match single_instance::SingleInstanceGuard::try_acquire() {
+                    Some(guard) => guard,
+                    None => {
+                        return exit_codes::SUCCESS;
+                    }
+                };
+
+                match native_ui::run() {
+                    Ok(()) => exit_codes::SUCCESS,
+                    Err(_) => exit_codes::UNEXPECTED_FAILURE,
                 }
-            })
+            }
         }
     }
 }
