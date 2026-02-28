@@ -125,15 +125,24 @@ impl ClaudeOAuthFetcher {
         Ok(ProviderFetchResult::new(usage, "oauth"))
     }
 
-    /// Load OAuth credentials from environment or file
+    /// Load OAuth credentials from environment, file, or WSL
     pub fn load_credentials(&self) -> Result<ClaudeOAuthCredentials, ProviderError> {
         // Try environment variables first
         if let Some(creds) = self.load_from_environment() {
             return Ok(creds);
         }
 
-        // Try credentials file
-        self.load_from_file()
+        // Try native credentials file
+        match self.load_from_file() {
+            Ok(creds) => return Ok(creds),
+            Err(native_err) => {
+                // Fallback: try reading credentials from WSL
+                match self.load_from_wsl() {
+                    Ok(creds) => return Ok(creds),
+                    Err(_) => return Err(native_err),
+                }
+            }
+        }
     }
 
     /// Load credentials from environment variables
@@ -177,7 +186,33 @@ impl ClaudeOAuthFetcher {
             ProviderError::OAuth(format!("Failed to read credentials file: {}", e))
         })?;
 
-        let file: CredentialsFile = serde_json::from_str(&content).map_err(|e| {
+        self.parse_credentials_json(&content)
+    }
+
+    /// Load credentials from WSL's ~/.claude/.credentials.json
+    fn load_from_wsl(&self) -> Result<ClaudeOAuthCredentials, ProviderError> {
+        if which::which("wsl").is_err() {
+            return Err(ProviderError::OAuth("WSL not available".to_string()));
+        }
+
+        let output = std::process::Command::new("wsl.exe")
+            .args(["bash", "-c", "cat $HOME/.claude/.credentials.json"])
+            .output()
+            .map_err(|e| ProviderError::OAuth(format!("Failed to run wsl.exe: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(ProviderError::OAuth(
+                "Could not read Claude credentials from WSL".to_string(),
+            ));
+        }
+
+        let content = String::from_utf8_lossy(&output.stdout);
+        self.parse_credentials_json(&content)
+    }
+
+    /// Parse credentials JSON content into OAuth credentials
+    fn parse_credentials_json(&self, content: &str) -> Result<ClaudeOAuthCredentials, ProviderError> {
+        let file: CredentialsFile = serde_json::from_str(content).map_err(|e| {
             ProviderError::OAuth(format!("Invalid credentials format: {}", e))
         })?;
 

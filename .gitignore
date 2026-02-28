@@ -25,6 +25,13 @@ debug_*.swift
 
 # Misc
 .DS_Store
+Thumbs.db
+*:Zone.Identifier
+*.log
+npm-debug.log*
+node_modules/
+coverage/
+*.tsbuildinfo
 
 # Debug/analysis docs
 docs/*-analysis.md
@@ -45,9 +52,13 @@ tmpclaude-*
 .vscode/
 *.swp
 *.swo
+*~
 dist/
 nul
 
 # Local scripts and env files
 *.ps1
 version.env
+.env
+.env.local
+.env.*.local

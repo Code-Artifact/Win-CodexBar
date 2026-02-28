@@ -4,7 +4,9 @@ mod oauth;
 mod web_api;
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::process::Command;
 use tokio::io::AsyncWriteExt;
 use regex_lite::Regex;
@@ -128,7 +130,7 @@ impl ClaudeProvider {
         tracing::debug!("Attempting CLI probe for Claude");
 
         // Check if claude CLI exists
-        let claude_path = which_claude().ok_or_else(|| {
+        let claude_loc = which_claude().ok_or_else(|| {
             ProviderError::NotInstalled(
                 "Claude CLI not found. Install from https://docs.claude.ai/claude-code".to_string(),
             )
@@ -136,7 +138,15 @@ impl ClaudeProvider {
 
         // Run claude CLI with /usage command via stdin
         // We spawn claude in non-interactive mode and send /usage
-        let mut child = Command::new(&claude_path)
+        let mut cmd = match &claude_loc {
+            ClaudeLocation::Native(path) => Command::new(path),
+            ClaudeLocation::Wsl => {
+                let mut c = Command::new("wsl.exe");
+                c.arg("claude");
+                c
+            }
+        };
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -278,8 +288,36 @@ impl ClaudeProvider {
     }
 }
 
+/// Where the Claude CLI was found
+#[derive(Debug, Clone)]
+enum ClaudeLocation {
+    /// Native Windows binary at this path
+    Native(PathBuf),
+    /// Available inside WSL (invoked via `wsl.exe claude`)
+    Wsl,
+}
+
+/// Check (once per process) whether `claude` is available inside WSL.
+fn wsl_has_claude() -> bool {
+    static RESULT: OnceLock<bool> = OnceLock::new();
+    *RESULT.get_or_init(|| {
+        // First check that wsl.exe itself is available
+        if which::which("wsl").is_err() {
+            return false;
+        }
+        // Probe for claude inside WSL
+        std::process::Command::new("wsl.exe")
+            .args(["command", "-v", "claude"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
 /// Try to find the claude CLI binary
-fn which_claude() -> Option<std::path::PathBuf> {
+fn which_claude() -> Option<ClaudeLocation> {
     // Check common locations on Windows
     let possible_paths = [
         // In PATH
@@ -290,17 +328,36 @@ fn which_claude() -> Option<std::path::PathBuf> {
         dirs::data_dir().map(|p| p.join("npm").join("claude.cmd")),
     ];
 
-    possible_paths.into_iter().flatten().find(|p| p.exists())
+    if let Some(path) = possible_paths.into_iter().flatten().find(|p| p.exists()) {
+        return Some(ClaudeLocation::Native(path));
+    }
+
+    // Fallback: try WSL
+    if wsl_has_claude() {
+        return Some(ClaudeLocation::Wsl);
+    }
+
+    None
 }
 
 /// Detect the version of the claude CLI
 fn detect_claude_version() -> Option<String> {
-    let claude_path = which_claude()?;
+    let claude_loc = which_claude()?;
 
-    let output = std::process::Command::new(claude_path)
-        .args(["--version"])
-        .output()
-        .ok()?;
+    let output = match &claude_loc {
+        ClaudeLocation::Native(path) => {
+            std::process::Command::new(path)
+                .args(["--version"])
+                .output()
+                .ok()?
+        }
+        ClaudeLocation::Wsl => {
+            std::process::Command::new("wsl.exe")
+                .args(["claude", "--version"])
+                .output()
+                .ok()?
+        }
+    };
 
     if output.status.success() {
         let version_str = String::from_utf8_lossy(&output.stdout);
