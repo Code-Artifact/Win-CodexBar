@@ -196,7 +196,7 @@ impl ClaudeOAuthFetcher {
         }
 
         let output = std::process::Command::new("wsl.exe")
-            .args(["bash", "-c", "cat $HOME/.claude/.credentials.json"])
+            .args(["bash", "-lc", "cat ~/.claude/.credentials.json"])
             .output()
             .map_err(|e| ProviderError::OAuth(format!("Failed to run wsl.exe: {}", e)))?;
 

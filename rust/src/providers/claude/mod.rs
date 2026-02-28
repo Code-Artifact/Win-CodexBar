@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::OnceLock;
 use tokio::process::Command;
-use tokio::io::AsyncWriteExt;
 use regex_lite::Regex;
 
 use crate::core::{
@@ -136,36 +135,27 @@ impl ClaudeProvider {
             )
         })?;
 
-        // Run claude CLI with /usage command via stdin
-        // We spawn claude in non-interactive mode and send /usage
-        let mut cmd = match &claude_loc {
-            ClaudeLocation::Native(path) => Command::new(path),
-            ClaudeLocation::Wsl => {
-                let mut c = Command::new("wsl.exe");
-                c.args(["bash", "-lc", "claude"]);
-                c
-            }
-        };
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env("TERM", "xterm-256color")
-            .env("NO_COLOR", "1") // Try to disable colors
-            .spawn()
-            .map_err(|e| ProviderError::Other(format!("Failed to spawn claude: {}", e)))?;
-
-        // Send /usage command
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(b"/usage\n").await;
-            let _ = stdin.write_all(b"/exit\n").await;
-            drop(stdin);
+        // WSL: the interactive /usage slash command cannot be driven over piped stdin
+        // and --print mode doesn't support it either. Fall back to OAuth which reads
+        // the credentials file from WSL and calls the API directly.
+        if matches!(claude_loc, ClaudeLocation::Wsl) {
+            tracing::debug!("WSL detected, delegating to OAuth path");
+            return self.fetch_via_oauth(_ctx).await;
         }
 
-        // Wait for output with timeout
+        // Native: run `claude -p /usage` (--print skips the workspace trust dialog)
+        let mut cmd = Command::new(match &claude_loc {
+            ClaudeLocation::Native(path) => path.as_path(),
+            _ => unreachable!(),
+        });
+        cmd.args(["-p", "/usage"]);
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            child.wait_with_output()
+            cmd
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("NO_COLOR", "1")
+                .output()
         )
         .await
         .map_err(|_| ProviderError::Timeout)?

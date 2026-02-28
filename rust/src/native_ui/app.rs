@@ -743,13 +743,13 @@ impl CodexBarApp {
                             let (usage_result, status_result) = tokio::join!(
                                 async {
                                     tokio::time::timeout(
-                                        std::time::Duration::from_secs(5),
+                                        std::time::Duration::from_secs(40),
                                         provider.fetch_usage(&ctx)
                                     ).await
                                 },
                                 async {
                                     tokio::time::timeout(
-                                        std::time::Duration::from_secs(5),
+                                        std::time::Duration::from_secs(40),
                                         fetch_provider_status(&provider_name)
                                     ).await
                                 }
